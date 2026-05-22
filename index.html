@@ -98,7 +98,6 @@
     </div>
 
     <script>
-        // 🔐 GESTION SÉCURISÉE DE LA CLÉ API
         let PRIM_API_KEY = localStorage.getItem('prim_key');
         if (!PRIM_API_KEY) {
             PRIM_API_KEY = prompt("Veuillez saisir votre clé d'API PRIM :");
@@ -110,22 +109,20 @@
         const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
         const CORS_PROXY = "https://api.allorigins.win/get?url=";
 
-        // Liste de miroirs Twitter RSS (testés un par un si l'un d'eux sature)
         const TWITTER_MIRRORS = [
             "https://nitter.net/RER_A/rss",
             "https://xcancel.com/RER_A/rss",
             "https://nitter.download/RER_A/rss"
         ];
 
-        // Déclencheur global au clic ou au chargement
         async function fetchAllData() {
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
             btn.innerText = "⏳...";
             
             document.getElementById('primStatus').className = "status-box";
-            document.getElementById('primStatus').innerHTML = "<span class='loading'>Analyse des perturbations régionales...</span>";
-            document.getElementById('twitterFeed').innerHTML = "<li class='loading'>Recherche d'un miroir Twitter disponible...</li>";
+            document.getElementById('primStatus').innerHTML = "<span class='loading'>Filtrage strict en cours...</span>";
+            document.getElementById('twitterFeed').innerHTML = "<li class='loading'>Recherche Twitter...</li>";
 
             await Promise.all([fetchPrimStatus(), fetchTwitterFeed()]);
 
@@ -138,12 +135,11 @@
             const statusBox = document.getElementById('primStatus');
             
             if (!PRIM_API_KEY) {
-                statusBox.innerHTML = "⚠️ Clé API absente. Rechargez la page pour la renseigner.";
+                statusBox.innerHTML = "⚠️ Clé API absente. Rechargez pour la renseigner.";
                 return;
             }
 
             try {
-                // Requête via Proxy pour éviter les blocages CORS du navigateur du téléphone
                 const targetUrl = encodeURIComponent(PRIM_URL);
                 const response = await fetch(`${CORS_PROXY}${targetUrl}`, {
                     headers: { "Target-URL-Header": "apikey", "Target-URL-Value": PRIM_API_KEY }
@@ -154,26 +150,15 @@
                 const disruptions = data.disruptions || [];
                 let alerts = [];
 
-                // 🎯 Filtrage strict : toutes les gares du Tronc Commun + Branche Marne-la-Vallée
+                // Liste stricte des gares de TON axe (Axe Centre + Branche Est)
                 const garesAxeEst = [
-                    "châtelet", "chatelet", "les halles",
-                    "gare de lyon", 
-                    "nation", 
-                    "vincennes", 
-                    "fontenay", "val de fontenay",
-                    "neuilly", "neuilly-plaisance", "neuilly plaisance",
-                    "bry", "bry-sur-marne", "bry sur marne",
-                    "noisy", "noisy-le-grand", "noisy le grand", "mont d'est", "mont dest",
-                    "noisiel", 
-                    "lognes", 
-                    "torcy", 
-                    "bussy", "bussy-saint-georges", "bussy st georges",
-                    "val d'europe", "val deurope", "serris",
-                    "marne", "marne-la-vallée", "marne la vallee", "chessy", "disney"
+                    "châtelet", "chatelet", "les halles", "gare de lyon", "nation", "vincennes", 
+                    "fontenay", "val de fontenay", "neuilly", "neuilly-plaisance", "neuilly plaisance",
+                    "bry", "bry-sur-marne", "bry sur marne", "noisy", "noisy-le-grand", "noisy le grand", 
+                    "mont d'est", "mont dest", "noisiel", "lognes", "torcy", "bussy", "bussy-saint-georges", 
+                    "bussy st georges", "val d'europe", "val deurope", "serris", "marne", "marne-la-vallée", 
+                    "marne la vallee", "chessy", "disney"
                 ];
-
-                // Mots-clés pour dégager les fausses alertes liées aux bus locaux
-                const blackListBus = ["bus", "car ", "ligne 1", "ligne 2", "ligne 3", "tram "];
 
                 disruptions.forEach(d => {
                     const title = (d.title || "").toLowerCase();
@@ -184,35 +169,42 @@
                     }
                     const fullText = (title + " " + msg).toLowerCase();
 
-                    // Vérification 1 : Est-ce que ça concerne bien la ligne globale du RER A (C01742) ?
-                    const matchesRerA = (fullText.includes("rer a") || fullText.includes("rera") || JSON.stringify(d).includes("C01742"));
-                    const isNotBus = !blackListBus.some(bannedWord => title.includes(bannedWord));
+                    // 🛑 CHANGEMENT STRATÉGIQUE DE PARSING
+                    // On vérifie si l'ID unique de la ligne de RER A est explicitement listé dans les objets impactés
+                    const objectsImpactedStr = JSON.stringify(d.impacted_objects || []);
+                    
+                    // Une perturbation est valide SI elle vise directement l'ID technique du RER A ("C01742")
+                    // ET que le titre ne commence pas par "Bus" ou "Tram"
+                    const isStrictlyRerA = objectsImpactedStr.includes("C01742") && 
+                                           !title.startsWith("bus ") && 
+                                           !title.startsWith("tram ");
 
-                    if (matchesRerA && isNotBus) {
-                        let matchesMyZone = false;
+                    if (isStrictlyRerA) {
+                        let impactTaZone = false;
 
-                        // Vérification 2 : Est-ce que ça impacte spécifiquement tes gares ou le réseau entier ?
                         const hasMyGare = garesAxeEst.some(gare => fullText.includes(gare));
-                        const isAlerteGenerale = fullText.includes("interrompu entre") || fullText.includes("panne de signalisation") || fullText.includes("incident technique");
+                        const isAlerteGenerale = fullText.includes("interrompu entre") || 
+                                                 fullText.includes("panne") || 
+                                                 fullText.includes("incident technique") || 
+                                                 fullText.includes("ralentissement");
 
                         if (hasMyGare || isAlerteGenerale) {
-                            matchesMyZone = true;
+                            impactTaZone = true;
                         }
 
-                        // Sécurité Ouest : Si l'alerte cible exclusivement Cergy/Poissy/St-Germain sans citer tes gares, on l'efface
-                        if ((fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("st-germain") || fullText.includes("saint-germain")) && !hasMyGare) {
-                            matchesMyZone = false;
+                        // Si ça parle STRICTEMENT des terminus Ouest (Cergy/Poissy/St-Germain) sans mentionner le centre ou tes gares, on dégage
+                        if ((fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("st-germain")) && !hasMyGare) {
+                            impactTaZone = false;
                         }
 
-                        if (matchesMyZone) {
+                        if (impactTaZone) {
                             const cleanTitle = d.title || "Incident / Ralentissement";
-                            const cleanMsg = msg || "Aucun détail complémentaire fourni par l'API.";
+                            const cleanMsg = msg || "Aucun détail complémentaire.";
                             alerts.push(`<strong>⚠️ ${cleanTitle}</strong><br>${cleanMsg}`);
                         }
                     }
                 });
 
-                // Suppression automatique des doublons identiques renvoyés par l'API
                 alerts = [...new Set(alerts)];
 
                 if (alerts.length === 0) {
@@ -226,14 +218,13 @@
             } catch (err) {
                 console.error(err);
                 statusBox.className = "status-box status-alert";
-                statusBox.innerHTML = "❌ Impossible de décoder le flux IDFM. Vérifiez votre clé d'API ou réessayez.";
+                statusBox.innerHTML = "❌ Erreur de connexion ou de clé API PRIM.";
             }
         }
 
         async function fetchTwitterFeed() {
             const feedContainer = document.getElementById('twitterFeed');
             
-            // Boucle de secours : on teste les miroirs un par un
             for (let currentMirror of TWITTER_MIRRORS) {
                 try {
                     const targetUrl = encodeURIComponent(currentMirror);
@@ -245,7 +236,7 @@
                     const items = xmlDoc.getElementsByTagName("item");
 
                     let htmlContent = "";
-                    const maxTweets = Math.min(items.length, 5); // Affiche les 5 derniers tweets
+                    const maxTweets = Math.min(items.length, 5);
                     
                     if (maxTweets > 0) {
                         for (let i = 0; i < maxTweets; i++) {
@@ -262,19 +253,16 @@
                         
                         if (htmlContent) {
                             feedContainer.innerHTML = htmlContent;
-                            return; // SUCCÈS : On sort immédiatement de la fonction, inutile de tester les autres miroirs !
+                            return; 
                         }
                     }
                 } catch (err) {
-                    console.log(`Miroir en échec (${currentMirror}). Tentative sur le suivant...`);
+                    console.log("Miroir saturé, switch...");
                 }
             }
-            
-            // Échec global si la boucle se termine sans retour valide
             feedContainer.innerHTML = "<li>❌ Serveurs Twitter de secours saturés. Fiez-vous à l'état de la ligne IDFM ci-dessus.</li>";
         }
 
-        // Lancement auto à l'ouverture de l'application
         window.onload = fetchAllData;
     </script>
 </body>
