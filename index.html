@@ -58,8 +58,14 @@
     <script>
         // 🛠️ CONFIGURATION
         // Replace this with your actual PRIM API key
-        const PRIM_API_KEY = "YOUR_ACTUAL_PRIM_API_KEY_HERE"; 
-        
+        // Get the key from localStorage, or ask for it if it's missing
+        let PRIM_API_KEY = localStorage.getItem('prim_key');
+        if (!PRIM_API_KEY) {
+            PRIM_API_KEY = prompt("Veuillez saisir votre clé d'API PRIM :");
+            if (PRIM_API_KEY) {
+                localStorage.setItem('prim_key', PRIM_API_KEY);
+            }
+        }        
         // Target endpoint and RSS resources
         const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
         const TWITTER_RSS = "https://nitter.privacydev.net/RER_A/rss";
