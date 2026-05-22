@@ -3,27 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RER A Live Dashboard</title>
+    <title>Mon RER A (Châtelet - Val d'Europe)</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 15px; color: #333; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; }
-        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-        .title-area { display: flex; align-items: center; gap: 10px; }
-        .logo { background: #e30613; color: white; font-weight: bold; padding: 5px 10px; border-radius: 4px; font-size: 20px; }
-        
-        /* Refresh Button Styling */
-        .refresh-btn { background: #007aff; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 5px; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background: #f0f2f5; 
+            margin: 0; 
+            padding: 15px; 
+            color: #333; 
+        }
+        .card { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
+            margin-bottom: 15px; 
+        }
+        .header { 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            margin-bottom: 20px; 
+        }
+        .title-area { 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+        }
+        .logo { 
+            background: #e30613; 
+            color: white; 
+            font-weight: bold; 
+            padding: 5px 12px; 
+            border-radius: 4px; 
+            font-size: 22px; 
+        }
+        .refresh-btn { 
+            background: #007aff; 
+            color: white; 
+            border: none; 
+            padding: 10px 16px; 
+            border-radius: 8px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            font-size: 14px; 
+        }
         .refresh-btn:active { background: #0056b3; }
         .refresh-btn:disabled { background: #a2a2a2; cursor: not-allowed; }
 
-        .status-box { padding: 12px; border-radius: 6px; border-left: 5px solid #ccc; background: #f9f9f9; min-height: 40px; }
-        .status-ok { border-left-color: #2ecc71; background: #e8f8f0; }
-        .status-alert { border-left-color: #e74c3c; background: #fdedec; }
+        .status-box { 
+            padding: 15px; 
+            border-radius: 8px; 
+            border-left: 5px solid #ccc; 
+            background: #f9f9f9; 
+            font-size: 15px;
+            line-height: 1.5;
+        }
+        .status-ok { border-left-color: #2ecc71; background: #e8f8f0; color: #1e7e34; }
+        .status-alert { border-left-color: #e74c3c; background: #fdedec; color: #c0392b; }
         
         ul { padding-left: 0; list-style: none; margin: 0; }
-        li { border-bottom: 1px solid #eee; padding: 10px 0; }
+        li { border-bottom: 1px solid #eee; padding: 12px 0; }
         li:last-child { border: none; }
-        .date { color: #888; font-size: 12px; display: block; margin-bottom: 4px; }
+        .date { color: #888; font-size: 11px; display: block; margin-bottom: 4px; }
         .footer { text-align: center; font-size: 11px; color: #aaa; margin-top: 20px; }
         .loading { color: #666; font-style: italic; }
     </style>
@@ -33,49 +75,57 @@
     <div class="header">
         <div class="title-area">
             <div class="logo">A</div>
-            <h2 style="margin:0;">Fil d'info RER A</h2>
+            <h2 style="margin:0; font-size: 20px;">Châtelet ➔ Val d'Europe</h2>
         </div>
         <button class="refresh-btn" id="refreshBtn" onclick="fetchAllData()">🔄 Actualiser</button>
     </div>
 
     <div class="card">
-        <h3>ℹ️ État de la Ligne (Live)</h3>
-        <div id="primStatus" class="status-box">Cliquez sur Actualiser pour charger...</div>
+        <h3 style="margin-top:0; font-size:16px;">ℹ️ État de la Ligne (Live IDFM)</h3>
+        <div id="primStatus" class="status-box">Initialisation...</div>
     </div>
 
     <div class="card">
-        <h3>💬 Derniers Signalements (@RER_A)</h3>
+        <h3 style="margin-top:0; font-size:16px;">💬 Derniers Signalements (@RER_A)</h3>
         <ul id="twitterFeed">
-            <li class="loading">Aucun tweet chargé.</li>
+            <li class="loading">En attente de chargement...</li>
         </ul>
     </div>
 
     <div class="footer">
-        Statut : <span id="updateTime">Jamais mis à jour</span><br>
-        Direct Client-Side Fetch via CORS Proxy
+        Dernière synchro : <span id="updateTime">-</span><br>
+        Données Île-de-France Mobilités & Miroirs X
     </div>
 
     <script>
+        // 🔐 GESTION SÉCURISÉE DE LA CLÉ API
         let PRIM_API_KEY = localStorage.getItem('prim_key');
         if (!PRIM_API_KEY) {
             PRIM_API_KEY = prompt("Veuillez saisir votre clé d'API PRIM :");
-            if (PRIM_API_KEY) { localStorage.setItem('prim_key', PRIM_API_KEY); }
+            if (PRIM_API_KEY) { 
+                localStorage.setItem('prim_key', PRIM_API_KEY); 
+            }
         }
         
         const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
-        
-        // 🔄 NEW resilient Twitter RSS mirror
-        const TWITTER_RSS = "https://nitter.net/RER_A/rss"; 
         const CORS_PROXY = "https://api.allorigins.win/get?url=";
 
+        // Liste de miroirs Twitter RSS (testés un par un si l'un d'eux sature)
+        const TWITTER_MIRRORS = [
+            "https://nitter.net/RER_A/rss",
+            "https://xcancel.com/RER_A/rss",
+            "https://nitter.download/RER_A/rss"
+        ];
+
+        // Déclencheur global au clic ou au chargement
         async function fetchAllData() {
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
             btn.innerText = "⏳...";
             
             document.getElementById('primStatus').className = "status-box";
-            document.getElementById('primStatus').innerHTML = "Chargement IDFM...";
-            document.getElementById('twitterFeed').innerHTML = "<li>Chargement Twitter...</li>";
+            document.getElementById('primStatus').innerHTML = "<span class='loading'>Analyse des perturbations régionales...</span>";
+            document.getElementById('twitterFeed').innerHTML = "<li class='loading'>Recherche d'un miroir Twitter disponible...</li>";
 
             await Promise.all([fetchPrimStatus(), fetchTwitterFeed()]);
 
@@ -84,85 +134,90 @@
             document.getElementById('updateTime').innerText = new Date().toLocaleTimeString('fr-FR');
         }
 
-        Ah, voilà ! L'API crache enfin ses données, mais comme c'est un flux global ("bulk"), elle te mélange le RER A avec la moitié des bus de la banlieue parisienne parce que l'identifiant d'une ligne de bus doit traîner quelque part dans les objets impactés.
-
-On va rendre le script beaucoup plus intelligent. On va appliquer deux filtres stricts :
-
-Filtre Ligne : On ne garde que ce qui mentionne explicitement le RER A et on dégage tous les bus.
-
-Filtre Zone (Châtelet <-> Marne-la-Vallée) : On va chercher des mots-clés spécifiques à ta branche (Châtelet, Gare de Lyon, Nation, Vincennes, Val de Fontenay, Noisy, Torcy, Marne, Chessy, etc.). Si une alerte parle uniquement de Cergy ou Poissy à l'autre bout de la ligne, elle sera masquée pour ne pas polluer ton écran.
-
-Voici le code mis à jour à coller dans ton index.html.
-
-Le bloc JavaScript ultra-filtré
-Remplace toute ta fonction fetchPrimStatus() par celle-ci dans ton fichier sur GitHub :
-
-JavaScript
         async function fetchPrimStatus() {
             const statusBox = document.getElementById('primStatus');
+            
+            if (!PRIM_API_KEY) {
+                statusBox.innerHTML = "⚠️ Clé API absente. Rechargez la page pour la renseigner.";
+                return;
+            }
+
             try {
+                // Requête via Proxy pour éviter les blocages CORS du navigateur du téléphone
                 const targetUrl = encodeURIComponent(PRIM_URL);
                 const response = await fetch(`${CORS_PROXY}${targetUrl}`, {
                     headers: { "Target-URL-Header": "apikey", "Target-URL-Value": PRIM_API_KEY }
                 });
                 const wrapper = await response.json();
-                
                 const data = JSON.parse(wrapper.contents);
+                
                 const disruptions = data.disruptions || [];
                 let alerts = [];
 
-                // Mots-clés spécifiques à la branche Est / Centre (Châtelet <-> Marne-la-Vallée)
-                const keywordsEstCentre = [
-                    "châtelet", "chatelet", "gare de lyon", "nation", "vincennes", 
-                    "fontenay", "bry", "noisy", "noisiel", "lognes", "torcy", 
-                    "bussy", "val d'europe", "val deurope", "marne", "chessy"
+                // 🎯 Filtrage strict : toutes les gares du Tronc Commun + Branche Marne-la-Vallée
+                const garesAxeEst = [
+                    "châtelet", "chatelet", "les halles",
+                    "gare de lyon", 
+                    "nation", 
+                    "vincennes", 
+                    "fontenay", "val de fontenay",
+                    "neuilly", "neuilly-plaisance", "neuilly plaisance",
+                    "bry", "bry-sur-marne", "bry sur marne",
+                    "noisy", "noisy-le-grand", "noisy le grand", "mont d'est", "mont dest",
+                    "noisiel", 
+                    "lognes", 
+                    "torcy", 
+                    "bussy", "bussy-saint-georges", "bussy st georges",
+                    "val d'europe", "val deurope", "serris",
+                    "marne", "marne-la-vallée", "marne la vallee", "chessy", "disney"
                 ];
 
-                // Mots-clés à bannir pour éviter les fausses alertes des bus
-                const keywordsBanned = ["bus", "car ", "ligne 1", "ligne 2", "ligne 3"];
+                // Mots-clés pour dégager les fausses alertes liées aux bus locaux
+                const blackListBus = ["bus", "car ", "ligne 1", "ligne 2", "ligne 3", "tram "];
 
                 disruptions.forEach(d => {
                     const title = (d.title || "").toLowerCase();
                     
-                    // Récupération propre du texte de l'alerte
                     let msg = "";
                     if (d.messages && d.messages.length > 0) {
                         msg = d.messages[0].text || d.messages[0].description || "";
                     }
                     const fullText = (title + " " + msg).toLowerCase();
 
-                    // 1. Validation stricte : C'est le RER A et PAS un bus
-                    const isRera = (fullText.includes("rer a") || fullText.includes("rera") || JSON.stringify(d).includes("C01742")) && 
-                                   !keywordsBanned.some(banned => title.includes(banned));
+                    // Vérification 1 : Est-ce que ça concerne bien la ligne globale du RER A (C01742) ?
+                    const matchesRerA = (fullText.includes("rer a") || fullText.includes("rera") || JSON.stringify(d).includes("C01742"));
+                    const isNotBus = !blackListBus.some(bannedWord => title.includes(bannedWord));
 
-                    if (isRera) {
-                        // 2. Filtrage géographique malin
-                        // Si l'alerte est globale (ex: "panne de signalisation"), on la garde.
-                        // Si elle cible Cergy/Poissy, on vérifie si elle touche AUSSI ta branche.
-                        let impactTaZone = true;
-                        
-                        const mentionneOuest = fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("nanterre");
-                        const mentionneEstCentre = keywordsEstCentre.some(kw => fullText.includes(kw));
+                    if (matchesRerA && isNotBus) {
+                        let matchesMyZone = false;
 
-                        // Si ça parle de l'ouest mais JAMAIS de ta zone ou du centre, on ignore
-                        if (mentionneOuest && !mentionneEstCentre && !fullText.includes("interrompu entre")) {
-                            impactTaZone = false;
+                        // Vérification 2 : Est-ce que ça impacte spécifiquement tes gares ou le réseau entier ?
+                        const hasMyGare = garesAxeEst.some(gare => fullText.includes(gare));
+                        const isAlerteGenerale = fullText.includes("interrompu entre") || fullText.includes("panne de signalisation") || fullText.includes("incident technique");
+
+                        if (hasMyGare || isAlerteGenerale) {
+                            matchesMyZone = true;
                         }
 
-                        if (impactTaZone) {
-                            const cleanTitle = d.title || "Incident / Info Trafic";
-                            const cleanMsg = msg || "Aucun détail disponible.";
-                            alerts.push(`<strong>⚠️ ${cleanTitle}</strong>:<br>${cleanMsg}`);
+                        // Sécurité Ouest : Si l'alerte cible exclusivement Cergy/Poissy/St-Germain sans citer tes gares, on l'efface
+                        if ((fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("st-germain") || fullText.includes("saint-germain")) && !hasMyGare) {
+                            matchesMyZone = false;
+                        }
+
+                        if (matchesMyZone) {
+                            const cleanTitle = d.title || "Incident / Ralentissement";
+                            const cleanMsg = msg || "Aucun détail complémentaire fourni par l'API.";
+                            alerts.push(`<strong>⚠️ ${cleanTitle}</strong><br>${cleanMsg}`);
                         }
                     }
                 });
 
-                // Nettoyage des doublons identiques (l'API PRIM envoie souvent la même alerte 3 fois)
+                // Suppression automatique des doublons identiques renvoyés par l'API
                 alerts = [...new Set(alerts)];
 
                 if (alerts.length === 0) {
                     statusBox.className = "status-box status-ok";
-                    statusBox.innerHTML = "✅ Trafic régulier sur l'axe Châtelet <-> Marne-la-Vallée.";
+                    statusBox.innerHTML = "✅ RAS. Trafic régulier sur l'axe Châtelet ➔ Val d'Europe.";
                 } else {
                     statusBox.className = "status-box status-alert";
                     statusBox.innerHTML = alerts.join("<br><br><hr style='border:0; border-top:1px dashed #e74c3c;'><br>");
@@ -170,49 +225,56 @@ JavaScript
 
             } catch (err) {
                 console.error(err);
-                statusBox.innerHTML = `❌ Erreur de filtrage ou de connexion à l'API IDFM.`;
+                statusBox.className = "status-box status-alert";
+                statusBox.innerHTML = "❌ Impossible de décoder le flux IDFM. Vérifiez votre clé d'API ou réessayez.";
             }
         }
+
         async function fetchTwitterFeed() {
             const feedContainer = document.getElementById('twitterFeed');
-            try {
-                const targetUrl = encodeURIComponent(TWITTER_RSS);
-                const response = await fetch(`${CORS_PROXY}${targetUrl}`);
-                const wrapper = await response.json();
-                
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(wrapper.contents, "text/xml");
-                const items = xmlDoc.getElementsByTagName("item");
-
-                let htmlContent = "";
-                const limit = Math.min(items.length, 5); // Show up to 5 updates
-                
-                if (limit === 0) {
-                    feedContainer.innerHTML = "<li>Aucun tweet récent trouvé sur le flux miroir.</li>";
-                    return;
-                }
-
-                for (let i = 0; i < limit; i++) {
-                    const title = items[i].getElementsByTagName("description")[0]?.textContent || 
-                                  items[i].getElementsByTagName("title")[0]?.textContent || "";
+            
+            // Boucle de secours : on teste les miroirs un par un
+            for (let currentMirror of TWITTER_MIRRORS) {
+                try {
+                    const targetUrl = encodeURIComponent(currentMirror);
+                    const response = await fetch(`${CORS_PROXY}${targetUrl}`);
+                    const wrapper = await response.json();
                     
-                    let pubDate = items[i].getElementsByTagName("pubDate")[0]?.textContent || "";
-                    // Quick clean up of time strings for cleaner look
-                    pubDate = pubDate.replace("+0000", "").replace("GMT", "").trim();
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(wrapper.contents, "text/xml");
+                    const items = xmlDoc.getElementsByTagName("item");
 
-                    // Filter out empty titles or links
-                    if (title.trim().length > 5) {
-                        htmlContent += `<li><span class="date">🕒 ${pubDate}</span><p style="margin:4px 0 0 0; font-size:14px; line-height:1.4;">${title}</p></li>`;
+                    let htmlContent = "";
+                    const maxTweets = Math.min(items.length, 5); // Affiche les 5 derniers tweets
+                    
+                    if (maxTweets > 0) {
+                        for (let i = 0; i < maxTweets; i++) {
+                            const desc = items[i].getElementsByTagName("description")[0]?.textContent || 
+                                         items[i].getElementsByTagName("title")[0]?.textContent || "";
+                            
+                            let dateText = items[i].getElementsByTagName("pubDate")[0]?.textContent || "";
+                            dateText = dateText.replace("+0000", "").replace("GMT", "").trim();
+
+                            if (desc.trim().length > 5) {
+                                htmlContent += `<li><span class="date">🕒 ${dateText}</span><p style="margin:4px 0 0 0; font-size:14px; line-height:1.4;">${desc}</p></li>`;
+                            }
+                        }
+                        
+                        if (htmlContent) {
+                            feedContainer.innerHTML = htmlContent;
+                            return; // SUCCÈS : On sort immédiatement de la fonction, inutile de tester les autres miroirs !
+                        }
                     }
+                } catch (err) {
+                    console.log(`Miroir en échec (${currentMirror}). Tentative sur le suivant...`);
                 }
-                
-                feedContainer.innerHTML = htmlContent || "<li>Aucune alerte textuelle lisible trouvée.</li>";
-
-            } catch (err) {
-                feedContainer.innerHTML = "<li>❌ Impossible de récupérer les tweets (Miroir RSS indisponible).</li>";
             }
+            
+            // Échec global si la boucle se termine sans retour valide
+            feedContainer.innerHTML = "<li>❌ Serveurs Twitter de secours saturés. Fiez-vous à l'état de la ligne IDFM ci-dessus.</li>";
         }
 
+        // Lancement auto à l'ouverture de l'application
         window.onload = fetchAllData;
     </script>
 </body>
