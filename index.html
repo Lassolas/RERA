@@ -84,43 +84,85 @@
             document.getElementById('updateTime').innerText = new Date().toLocaleTimeString('fr-FR');
         }
 
+        Ah, voilà ! L'API crache enfin ses données, mais comme c'est un flux global ("bulk"), elle te mélange le RER A avec la moitié des bus de la banlieue parisienne parce que l'identifiant d'une ligne de bus doit traîner quelque part dans les objets impactés.
+
+On va rendre le script beaucoup plus intelligent. On va appliquer deux filtres stricts :
+
+Filtre Ligne : On ne garde que ce qui mentionne explicitement le RER A et on dégage tous les bus.
+
+Filtre Zone (Châtelet <-> Marne-la-Vallée) : On va chercher des mots-clés spécifiques à ta branche (Châtelet, Gare de Lyon, Nation, Vincennes, Val de Fontenay, Noisy, Torcy, Marne, Chessy, etc.). Si une alerte parle uniquement de Cergy ou Poissy à l'autre bout de la ligne, elle sera masquée pour ne pas polluer ton écran.
+
+Voici le code mis à jour à coller dans ton index.html.
+
+Le bloc JavaScript ultra-filtré
+Remplace toute ta fonction fetchPrimStatus() par celle-ci dans ton fichier sur GitHub :
+
+JavaScript
         async function fetchPrimStatus() {
             const statusBox = document.getElementById('primStatus');
             try {
-                // Fetch using the CORS proxy to guarantee headers don't get stripped by the phone browser
                 const targetUrl = encodeURIComponent(PRIM_URL);
                 const response = await fetch(`${CORS_PROXY}${targetUrl}`, {
                     headers: { "Target-URL-Header": "apikey", "Target-URL-Value": PRIM_API_KEY }
                 });
                 const wrapper = await response.json();
                 
-                // Parse the proxy content string back into actual JSON data
                 const data = JSON.parse(wrapper.contents);
                 const disruptions = data.disruptions || [];
                 let alerts = [];
 
+                // Mots-clés spécifiques à la branche Est / Centre (Châtelet <-> Marne-la-Vallée)
+                const keywordsEstCentre = [
+                    "châtelet", "chatelet", "gare de lyon", "nation", "vincennes", 
+                    "fontenay", "bry", "noisy", "noisiel", "lognes", "torcy", 
+                    "bussy", "val d'europe", "val deurope", "marne", "chessy"
+                ];
+
+                // Mots-clés à bannir pour éviter les fausses alertes des bus
+                const keywordsBanned = ["bus", "car ", "ligne 1", "ligne 2", "ligne 3"];
+
                 disruptions.forEach(d => {
-                    const fullDisruptionString = JSON.stringify(d).toLowerCase();
+                    const title = (d.title || "").toLowerCase();
                     
-                    // Super broad search: match standard internal IDs, RER A structural references, or plain text
-                    if (
-                        fullDisruptionString.includes("c01742") || 
-                        fullDisruptionString.includes("rer a") || 
-                        fullDisruptionString.includes("rera")
-                    ) {
-                        const title = d.title || "Incident / Travaux";
-                        // Grab the message text safely
-                        let msg = "Aucun détail disponible pour le moment.";
-                        if (d.messages && d.messages.length > 0) {
-                            msg = d.messages[0].text || d.messages[0].description || msg;
+                    // Récupération propre du texte de l'alerte
+                    let msg = "";
+                    if (d.messages && d.messages.length > 0) {
+                        msg = d.messages[0].text || d.messages[0].description || "";
+                    }
+                    const fullText = (title + " " + msg).toLowerCase();
+
+                    // 1. Validation stricte : C'est le RER A et PAS un bus
+                    const isRera = (fullText.includes("rer a") || fullText.includes("rera") || JSON.stringify(d).includes("C01742")) && 
+                                   !keywordsBanned.some(banned => title.includes(banned));
+
+                    if (isRera) {
+                        // 2. Filtrage géographique malin
+                        // Si l'alerte est globale (ex: "panne de signalisation"), on la garde.
+                        // Si elle cible Cergy/Poissy, on vérifie si elle touche AUSSI ta branche.
+                        let impactTaZone = true;
+                        
+                        const mentionneOuest = fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("nanterre");
+                        const mentionneEstCentre = keywordsEstCentre.some(kw => fullText.includes(kw));
+
+                        // Si ça parle de l'ouest mais JAMAIS de ta zone ou du centre, on ignore
+                        if (mentionneOuest && !mentionneEstCentre && !fullText.includes("interrompu entre")) {
+                            impactTaZone = false;
                         }
-                        alerts.push(`<strong>⚠️ ${title}</strong>:<br>${msg}`);
+
+                        if (impactTaZone) {
+                            const cleanTitle = d.title || "Incident / Info Trafic";
+                            const cleanMsg = msg || "Aucun détail disponible.";
+                            alerts.push(`<strong>⚠️ ${cleanTitle}</strong>:<br>${cleanMsg}`);
+                        }
                     }
                 });
 
+                // Nettoyage des doublons identiques (l'API PRIM envoie souvent la même alerte 3 fois)
+                alerts = [...new Set(alerts)];
+
                 if (alerts.length === 0) {
                     statusBox.className = "status-box status-ok";
-                    statusBox.innerHTML = "✅ Aucun incident majeur répertorié sur l'API globale pour le RER A.";
+                    statusBox.innerHTML = "✅ Trafic régulier sur l'axe Châtelet <-> Marne-la-Vallée.";
                 } else {
                     statusBox.className = "status-box status-alert";
                     statusBox.innerHTML = alerts.join("<br><br><hr style='border:0; border-top:1px dashed #e74c3c;'><br>");
@@ -128,10 +170,9 @@
 
             } catch (err) {
                 console.error(err);
-                statusBox.innerHTML = `❌ Erreur de décodage ou de connexion à l'API IDFM.`;
+                statusBox.innerHTML = `❌ Erreur de filtrage ou de connexion à l'API IDFM.`;
             }
         }
-
         async function fetchTwitterFeed() {
             const feedContainer = document.getElementById('twitterFeed');
             try {
