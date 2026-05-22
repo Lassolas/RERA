@@ -56,7 +56,6 @@
     </div>
 
     <script>
-        // 🛠️ CONFIGURATION UPDATED
         let PRIM_API_KEY = localStorage.getItem('prim_key');
         if (!PRIM_API_KEY) {
             PRIM_API_KEY = prompt("Veuillez saisir votre clé d'API PRIM :");
@@ -65,8 +64,8 @@
         
         const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
         
-        // 🔄 FIX: Switched to xcancel.com, a much more resilient Twitter mirror
-        const TWITTER_RSS = "https://xcancel.com/RER_A/rss"; 
+        // 🔄 NEW resilient Twitter RSS mirror
+        const TWITTER_RSS = "https://nitter.net/RER_A/rss"; 
         const CORS_PROXY = "https://api.allorigins.win/get?url=";
 
         async function fetchAllData() {
@@ -88,34 +87,48 @@
         async function fetchPrimStatus() {
             const statusBox = document.getElementById('primStatus');
             try {
-                // Fetch directly since your phone browser proved it accepts CORS direct connections!
-                const response = await fetch(PRIM_URL, { headers: { "apikey": PRIM_API_KEY } });
-                const data = await response.json();
-
+                // Fetch using the CORS proxy to guarantee headers don't get stripped by the phone browser
+                const targetUrl = encodeURIComponent(PRIM_URL);
+                const response = await fetch(`${CORS_PROXY}${targetUrl}`, {
+                    headers: { "Target-URL-Header": "apikey", "Target-URL-Value": PRIM_API_KEY }
+                });
+                const wrapper = await response.json();
+                
+                // Parse the proxy content string back into actual JSON data
+                const data = JSON.parse(wrapper.contents);
                 const disruptions = data.disruptions || [];
                 let alerts = [];
 
                 disruptions.forEach(d => {
-                    const impactedStr = JSON.stringify(d.impacted_objects || []);
-                    // Check if RER A's structural key (C01742) is inside the incident data
-                    if (impactedStr.includes("C01742") || JSON.stringify(d).toLowerCase().includes("rer a")) {
-                        const title = d.title || "Perturbation";
-                        const msg = d.messages && d.messages[0] ? d.messages[0].text : "Aucun détail.";
-                        alerts.push(`<strong>⚠️ ${title}</strong>: ${msg}`);
+                    const fullDisruptionString = JSON.stringify(d).toLowerCase();
+                    
+                    // Super broad search: match standard internal IDs, RER A structural references, or plain text
+                    if (
+                        fullDisruptionString.includes("c01742") || 
+                        fullDisruptionString.includes("rer a") || 
+                        fullDisruptionString.includes("rera")
+                    ) {
+                        const title = d.title || "Incident / Travaux";
+                        // Grab the message text safely
+                        let msg = "Aucun détail disponible pour le moment.";
+                        if (d.messages && d.messages.length > 0) {
+                            msg = d.messages[0].text || d.messages[0].description || msg;
+                        }
+                        alerts.push(`<strong>⚠️ ${title}</strong>:<br>${msg}`);
                     }
                 });
 
-                // 🔄 FIX: Safely handles the "No News is Good News" scenario
                 if (alerts.length === 0) {
                     statusBox.className = "status-box status-ok";
-                    statusBox.innerHTML = "✅ Trafic régulier / Aucun incident signalé sur le RER A.";
+                    statusBox.innerHTML = "✅ Aucun incident majeur répertorié sur l'API globale pour le RER A.";
                 } else {
                     statusBox.className = "status-box status-alert";
-                    statusBox.innerHTML = alerts.join("<br><br>");
+                    statusBox.innerHTML = alerts.join("<br><br><hr style='border:0; border-top:1px dashed #e74c3c;'><br>");
                 }
 
             } catch (err) {
-                statusBox.innerHTML = `❌ Erreur de connexion à l'API IDFM.`;
+                console.error(err);
+                statusBox.innerHTML = `❌ Erreur de décodage ou de connexion à l'API IDFM.`;
             }
         }
 
@@ -131,24 +144,31 @@
                 const items = xmlDoc.getElementsByTagName("item");
 
                 let htmlContent = "";
-                const limit = Math.min(items.length, 4);
+                const limit = Math.min(items.length, 5); // Show up to 5 updates
                 
-                if(limit === 0) {
-                    feedContainer.innerHTML = "<li>Aucun tweet trouvé. Le compte est peut-être silencieux.</li>";
+                if (limit === 0) {
+                    feedContainer.innerHTML = "<li>Aucun tweet récent trouvé sur le flux miroir.</li>";
                     return;
                 }
 
                 for (let i = 0; i < limit; i++) {
-                    const title = items[i].getElementsByTagName("title")[0].textContent;
-                    let pubDate = items[i].getElementsByTagName("pubDate")[0].textContent;
-                    pubDate = pubDate.replace("+0000", "").trim();
+                    const title = items[i].getElementsByTagName("description")[0]?.textContent || 
+                                  items[i].getElementsByTagName("title")[0]?.textContent || "";
+                    
+                    let pubDate = items[i].getElementsByTagName("pubDate")[0]?.textContent || "";
+                    // Quick clean up of time strings for cleaner look
+                    pubDate = pubDate.replace("+0000", "").replace("GMT", "").trim();
 
-                    htmlContent += `<li><span class="date">🕒 ${pubDate}</span><p style="margin:0; font-size:14px;">${title}</p></li>`;
+                    // Filter out empty titles or links
+                    if (title.trim().length > 5) {
+                        htmlContent += `<li><span class="date">🕒 ${pubDate}</span><p style="margin:4px 0 0 0; font-size:14px; line-height:1.4;">${title}</p></li>`;
+                    }
                 }
-                feedContainer.innerHTML = htmlContent;
+                
+                feedContainer.innerHTML = htmlContent || "<li>Aucune alerte textuelle lisible trouvée.</li>";
 
             } catch (err) {
-                feedContainer.innerHTML = "<li>❌ Serveur Twitter miroir surchargé. Réessayez dans un instant.</li>";
+                feedContainer.innerHTML = "<li>❌ Impossible de récupérer les tweets (Miroir RSS indisponible).</li>";
             }
         }
 
