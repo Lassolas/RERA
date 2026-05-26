@@ -86,34 +86,28 @@
     </div>
 
     <div class="card">
-        <h3 style="margin-top:0; font-size:16px;">💬 Derniers Signalements (@RER_A)</h3>
-        <ul id="twitterFeed">
+        <h3 style="margin-top:0; font-size:16px;">💬 Signalements Bluesky (RER A)</h3>
+        <ul id="socialFeed">
             <li class="loading">En attente de chargement...</li>
         </ul>
     </div>
 
     <div class="footer">
         Dernière synchro : <span id="updateTime">-</span><br>
-        Données Île-de-France Mobilités & Miroirs X
+        Données Île-de-France Mobilités & Bluesky
     </div>
 
     <script>
         let PRIM_API_KEY = localStorage.getItem('prim_key');
         if (!PRIM_API_KEY) {
             PRIM_API_KEY = prompt("Veuillez saisir votre clé d'API PRIM :");
-            if (PRIM_API_KEY) { 
-                localStorage.setItem('prim_key', PRIM_API_KEY); 
+            if (PRIM_API_KEY) {
+                localStorage.setItem('prim_key', PRIM_API_KEY);
             }
         }
-        
-        const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
-        const CORS_PROXY = "https://api.allorigins.win/get?url=";
 
-        const TWITTER_MIRRORS = [
-            "https://nitter.net/RER_A/rss",
-            "https://xcancel.com/RER_A/rss",
-            "https://nitter.download/RER_A/rss"
-        ];
+        const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
+        const CORS_PROXY = "https://corsproxy.io/?";
 
         async function fetchAllData() {
             const btn = document.getElementById('refreshBtn');
@@ -122,9 +116,9 @@
             
             document.getElementById('primStatus').className = "status-box";
             document.getElementById('primStatus').innerHTML = "<span class='loading'>Filtrage strict en cours...</span>";
-            document.getElementById('twitterFeed').innerHTML = "<li class='loading'>Recherche Twitter...</li>";
+            document.getElementById('socialFeed').innerHTML = "<li class='loading'>Recherche sur Bluesky...</li>";
 
-            await Promise.all([fetchPrimStatus(), fetchTwitterFeed()]);
+            await Promise.all([fetchPrimStatus(), fetchBlueskyFeed()]);
 
             btn.disabled = false;
             btn.innerText = "🔄 Actualiser";
@@ -140,12 +134,10 @@
             }
 
             try {
-                const targetUrl = encodeURIComponent(PRIM_URL);
-                const response = await fetch(`${CORS_PROXY}${targetUrl}`, {
-                    headers: { "Target-URL-Header": "apikey", "Target-URL-Value": PRIM_API_KEY }
+                const response = await fetch(`${CORS_PROXY}${encodeURIComponent(PRIM_URL)}`, {
+                    headers: { "apikey": PRIM_API_KEY }
                 });
-                const wrapper = await response.json();
-                const data = JSON.parse(wrapper.contents);
+                const data = await response.json();
                 
                 const disruptions = data.disruptions || [];
                 let alerts = [];
@@ -222,45 +214,40 @@
             }
         }
 
-        async function fetchTwitterFeed() {
-            const feedContainer = document.getElementById('twitterFeed');
-            
-            for (let currentMirror of TWITTER_MIRRORS) {
-                try {
-                    const targetUrl = encodeURIComponent(currentMirror);
-                    const response = await fetch(`${CORS_PROXY}${targetUrl}`);
-                    const wrapper = await response.json();
-                    
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(wrapper.contents, "text/xml");
-                    const items = xmlDoc.getElementsByTagName("item");
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.appendChild(document.createTextNode(text));
+            return d.innerHTML;
+        }
 
-                    let htmlContent = "";
-                    const maxTweets = Math.min(items.length, 5);
-                    
-                    if (maxTweets > 0) {
-                        for (let i = 0; i < maxTweets; i++) {
-                            const desc = items[i].getElementsByTagName("description")[0]?.textContent || 
-                                         items[i].getElementsByTagName("title")[0]?.textContent || "";
-                            
-                            let dateText = items[i].getElementsByTagName("pubDate")[0]?.textContent || "";
-                            dateText = dateText.replace("+0000", "").replace("GMT", "").trim();
+        async function fetchBlueskyFeed() {
+            const feedContainer = document.getElementById('socialFeed');
+            try {
+                const response = await fetch(
+                    "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=RER%20A&sort=latest&limit=8&lang=fr"
+                );
+                const data = await response.json();
+                const posts = (data.posts || []).slice(0, 5);
 
-                            if (desc.trim().length > 5) {
-                                htmlContent += `<li><span class="date">🕒 ${dateText}</span><p style="margin:4px 0 0 0; font-size:14px; line-height:1.4;">${desc}</p></li>`;
-                            }
-                        }
-                        
-                        if (htmlContent) {
-                            feedContainer.innerHTML = htmlContent;
-                            return; 
-                        }
-                    }
-                } catch (err) {
-                    console.log("Miroir saturé, switch...");
+                if (posts.length === 0) {
+                    feedContainer.innerHTML = "<li>Aucun signalement récent sur Bluesky.</li>";
+                    return;
                 }
+
+                let html = "";
+                for (const post of posts) {
+                    const text = escapeHtml(post.record?.text || "");
+                    const handle = escapeHtml(post.author?.handle || "");
+                    const dateStr = post.record?.createdAt
+                        ? new Date(post.record.createdAt).toLocaleString('fr-FR')
+                        : "";
+                    html += `<li><span class="date">🕒 ${dateStr} — @${handle}</span><p style="margin:4px 0 0 0; font-size:14px; line-height:1.4;">${text}</p></li>`;
+                }
+                feedContainer.innerHTML = html;
+            } catch (err) {
+                console.error(err);
+                feedContainer.innerHTML = "<li>❌ Impossible de charger les signalements Bluesky.</li>";
             }
-            feedContainer.innerHTML = "<li>❌ Serveurs Twitter de secours saturés. Fiez-vous à l'état de la ligne IDFM ci-dessus.</li>";
         }
 
         window.onload = fetchAllData;
