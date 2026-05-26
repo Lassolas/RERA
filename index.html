@@ -125,6 +125,7 @@
         async function proxiedFetch(url) {
             const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
             const wrapper = await res.json();
+            if (!wrapper.contents) throw new Error(`HTTP ${wrapper.status?.http_code ?? 'error'}`);
             return JSON.parse(wrapper.contents);
         }
 
