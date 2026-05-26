@@ -61,7 +61,14 @@
         }
         .status-ok { border-left-color: #2ecc71; background: #e8f8f0; color: #1e7e34; }
         .status-alert { border-left-color: #e74c3c; background: #fdedec; color: #c0392b; }
-        
+
+        .departures { margin-top: 12px; border-top: 1px solid #eee; padding-top: 10px; }
+        .dep-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f5f5f5; }
+        .dep-row:last-child { border-bottom: none; }
+        .dep-time { font-weight: bold; font-size: 17px; min-width: 48px; color: #111; }
+        .dep-dest { flex: 1; font-size: 14px; color: #444; }
+        .dep-delay { font-size: 13px; color: #e74c3c; font-weight: bold; }
+
         ul { padding-left: 0; list-style: none; margin: 0; }
         li { border-bottom: 1px solid #eee; padding: 12px 0; }
         li:last-child { border: none; }
@@ -83,11 +90,13 @@
     <div class="card">
         <h3 style="margin-top:0; font-size:16px;">ℹ️ Châtelet ➔ Val d'Europe</h3>
         <div id="primStatusEst" class="status-box">Initialisation...</div>
+        <div id="departuresEst" class="departures"><span class="loading">Chargement des départs...</span></div>
     </div>
 
     <div class="card">
         <h3 style="margin-top:0; font-size:16px;">ℹ️ Val d'Europe ➔ Châtelet</h3>
         <div id="primStatusOuest" class="status-box">Initialisation...</div>
+        <div id="departuresOuest" class="departures"><span class="loading">Chargement des départs...</span></div>
     </div>
 
     <div class="card">
@@ -123,9 +132,11 @@
             document.getElementById('primStatusEst').innerHTML = "<span class='loading'>Chargement...</span>";
             document.getElementById('primStatusOuest').className = "status-box";
             document.getElementById('primStatusOuest').innerHTML = "<span class='loading'>Chargement...</span>";
+            document.getElementById('departuresEst').innerHTML = "<span class='loading'>Chargement des départs...</span>";
+            document.getElementById('departuresOuest').innerHTML = "<span class='loading'>Chargement des départs...</span>";
             document.getElementById('socialFeed').innerHTML = "<li class='loading'>Recherche sur Bluesky...</li>";
 
-            await Promise.all([fetchPrimStatus(), fetchBlueskyFeed()]);
+            await Promise.all([fetchPrimStatus(), fetchNextDepartures(), fetchBlueskyFeed()]);
 
             btn.disabled = false;
             btn.innerText = "🔄 Actualiser";
@@ -227,6 +238,73 @@
                 boxEst.className = boxOuest.className = "status-box status-alert";
                 boxEst.innerHTML = boxOuest.innerHTML = errHtml;
             }
+        }
+
+        // ArteBO stop area codes — verify at data.iledefrance-mobilites.fr if departures are blank
+        const STOP_CHATELET    = "STIF:StopArea:SP:71370:";
+        const STOP_VAL_EUROPE  = "STIF:StopArea:SP:71593:";
+        const LINE_RERA        = "STIF:Line::C01742:";
+        const STOP_MONITORING  = "https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring";
+
+        function formatTime(iso) {
+            if (!iso) return "--:--";
+            return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function delayLabel(aimed, expected) {
+            if (!aimed || !expected) return "";
+            const min = Math.round((new Date(expected) - new Date(aimed)) / 60000);
+            return min > 0 ? `+${min} min` : "";
+        }
+
+        async function fetchStopDepartures(stopRef, containerId, destFilter) {
+            const container = document.getElementById(containerId);
+            if (!PRIM_API_KEY) { container.innerHTML = ""; return; }
+            try {
+                const url = `${STOP_MONITORING}?MonitoringRef=${encodeURIComponent(stopRef)}&LineRef=${encodeURIComponent(LINE_RERA)}&MaximumStopVisits=8`;
+                const res = await fetch(`${CORS_PROXY}${encodeURIComponent(url)}`, {
+                    headers: { "apikey": PRIM_API_KEY }
+                });
+                const data = await res.json();
+                const visits = data?.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit || [];
+
+                const rows = [];
+                for (const v of visits) {
+                    const journey = v.MonitoredVehicleJourney;
+                    const dest = journey?.DestinationName?.[0]?.value || "";
+                    if (destFilter && !destFilter.some(d => dest.toLowerCase().includes(d))) continue;
+                    const call    = journey?.MonitoredCall;
+                    const aimed   = call?.AimedDepartureTime;
+                    const expected = call?.ExpectedDepartureTime || aimed;
+                    if (!expected) continue;
+                    rows.push({ time: formatTime(expected), dest, delay: delayLabel(aimed, expected) });
+                    if (rows.length >= 3) break;
+                }
+
+                if (rows.length === 0) {
+                    container.innerHTML = '<span style="color:#888;font-size:13px;">Aucun départ imminent.</span>';
+                    return;
+                }
+                container.innerHTML = rows.map(r =>
+                    `<div class="dep-row">
+                        <span class="dep-time">${r.time}</span>
+                        <span class="dep-dest">${escapeHtml(r.dest)}</span>
+                        ${r.delay ? `<span class="dep-delay">${r.delay}</span>` : ""}
+                    </div>`
+                ).join("");
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = '<span style="color:#888;font-size:13px;">Départs indisponibles.</span>';
+            }
+        }
+
+        async function fetchNextDepartures() {
+            await Promise.all([
+                // Châtelet → eastbound: only Marne-la-Vallée/Chessy branch (Val d'Europe is on this branch, not Boissy)
+                fetchStopDepartures(STOP_CHATELET,   "departuresEst",   ["marne", "chessy"]),
+                // Val d'Europe → all trains depart westbound to Paris
+                fetchStopDepartures(STOP_VAL_EUROPE, "departuresOuest", null)
+            ]);
         }
 
         function escapeHtml(text) {
