@@ -302,8 +302,8 @@
             await Promise.all([
                 // Châtelet → eastbound: only Marne-la-Vallée/Chessy branch (Val d'Europe is on this branch, not Boissy)
                 fetchStopDepartures(STOP_CHATELET,   "departuresEst",   ["marne", "chessy"]),
-                // Val d'Europe → all trains depart westbound to Paris
-                fetchStopDepartures(STOP_VAL_EUROPE, "departuresOuest", null)
+                // Val d'Europe → westbound only (exclude Chessy/Marne-la-Vallée which is the next stop east)
+                fetchStopDepartures(STOP_VAL_EUROPE, "departuresOuest", ["saint-germain", "cergy", "poissy", "nanterre", "châtelet", "chatelet"])
             ]);
         }
 
