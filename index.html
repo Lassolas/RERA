@@ -260,11 +260,11 @@
             return min > 0 ? `+${min} min` : "";
         }
 
-        async function fetchStopDepartures(stopRef, containerId, destFilter) {
+        async function fetchStopDepartures(stopRef, containerId, destFilter, exclude = false) {
             const container = document.getElementById(containerId);
             if (!PRIM_API_KEY) { container.innerHTML = ""; return; }
             try {
-                const url = `${STOP_MONITORING}?MonitoringRef=${encodeURIComponent(stopRef)}&LineRef=${encodeURIComponent(LINE_RERA)}&MaximumStopVisits=8&apikey=${PRIM_API_KEY}`;
+                const url = `${STOP_MONITORING}?MonitoringRef=${encodeURIComponent(stopRef)}&LineRef=${encodeURIComponent(LINE_RERA)}&MaximumStopVisits=50&apikey=${PRIM_API_KEY}`;
                 const data = await proxiedFetch(url);
                 const visits = data?.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit || [];
 
@@ -272,7 +272,10 @@
                 for (const v of visits) {
                     const journey = v.MonitoredVehicleJourney;
                     const dest = journey?.DestinationName?.[0]?.value || "";
-                    if (destFilter && !destFilter.some(d => dest.toLowerCase().includes(d))) continue;
+                    if (destFilter) {
+                        const match = destFilter.some(d => dest.toLowerCase().includes(d));
+                        if (exclude ? match : !match) continue;
+                    }
                     const call    = journey?.MonitoredCall;
                     const aimed   = call?.AimedDepartureTime;
                     const expected = call?.ExpectedDepartureTime || aimed;
@@ -301,9 +304,9 @@
         async function fetchNextDepartures() {
             await Promise.all([
                 // Châtelet → eastbound: only Marne-la-Vallée/Chessy branch (Val d'Europe is on this branch, not Boissy)
-                fetchStopDepartures(STOP_CHATELET,   "departuresEst",   ["marne", "chessy"]),
+                fetchStopDepartures(STOP_CHATELET,   "departuresEst",   ["marne", "chessy"], false),
                 // Val d'Europe → westbound only (exclude Chessy/Marne-la-Vallée which is the next stop east)
-                fetchStopDepartures(STOP_VAL_EUROPE, "departuresOuest", ["saint-germain", "cergy", "poissy", "nanterre", "châtelet", "chatelet"])
+                fetchStopDepartures(STOP_VAL_EUROPE, "departuresOuest", ["marne", "chessy"], true)
             ]);
         }
 
