@@ -121,7 +121,12 @@
         }
 
         const PRIM_URL = "https://prim.iledefrance-mobilites.fr/marketplace/disruptions_bulk/disruptions/v2";
-        const CORS_PROXY = "https://corsproxy.io/?";
+
+        async function proxiedFetch(url) {
+            const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+            const wrapper = await res.json();
+            return JSON.parse(wrapper.contents);
+        }
 
         async function fetchAllData() {
             const btn = document.getElementById('refreshBtn');
@@ -167,10 +172,7 @@
             }
 
             try {
-                const response = await fetch(`${CORS_PROXY}${encodeURIComponent(PRIM_URL)}`, {
-                    headers: { "apikey": PRIM_API_KEY }
-                });
-                const data = await response.json();
+                const data = await proxiedFetch(`${PRIM_URL}?apikey=${PRIM_API_KEY}`);
                 const disruptions = data.disruptions || [];
 
                 const garesAxeEst = [
@@ -261,11 +263,8 @@
             const container = document.getElementById(containerId);
             if (!PRIM_API_KEY) { container.innerHTML = ""; return; }
             try {
-                const url = `${STOP_MONITORING}?MonitoringRef=${encodeURIComponent(stopRef)}&LineRef=${encodeURIComponent(LINE_RERA)}&MaximumStopVisits=8`;
-                const res = await fetch(`${CORS_PROXY}${encodeURIComponent(url)}`, {
-                    headers: { "apikey": PRIM_API_KEY }
-                });
-                const data = await res.json();
+                const url = `${STOP_MONITORING}?MonitoringRef=${encodeURIComponent(stopRef)}&LineRef=${encodeURIComponent(LINE_RERA)}&MaximumStopVisits=8&apikey=${PRIM_API_KEY}`;
+                const data = await proxiedFetch(url);
                 const visits = data?.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit || [];
 
                 const rows = [];
@@ -316,10 +315,9 @@
         async function fetchBlueskyFeed() {
             const feedContainer = document.getElementById('socialFeed');
             try {
-                const response = await fetch(
+                const data = await proxiedFetch(
                     "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=RER%20A&sort=latest&limit=8&lang=fr"
                 );
-                const data = await response.json();
                 const posts = (data.posts || []).slice(0, 5);
 
                 if (posts.length === 0) {
