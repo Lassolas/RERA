@@ -81,8 +81,13 @@
     </div>
 
     <div class="card">
-        <h3 style="margin-top:0; font-size:16px;">ℹ️ État de la Ligne (Live IDFM)</h3>
-        <div id="primStatus" class="status-box">Initialisation...</div>
+        <h3 style="margin-top:0; font-size:16px;">ℹ️ Châtelet ➔ Val d'Europe</h3>
+        <div id="primStatusEst" class="status-box">Initialisation...</div>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-top:0; font-size:16px;">ℹ️ Val d'Europe ➔ Châtelet</h3>
+        <div id="primStatusOuest" class="status-box">Initialisation...</div>
     </div>
 
     <div class="card">
@@ -114,8 +119,10 @@
             btn.disabled = true;
             btn.innerText = "⏳...";
             
-            document.getElementById('primStatus').className = "status-box";
-            document.getElementById('primStatus').innerHTML = "<span class='loading'>Filtrage strict en cours...</span>";
+            document.getElementById('primStatusEst').className = "status-box";
+            document.getElementById('primStatusEst').innerHTML = "<span class='loading'>Chargement...</span>";
+            document.getElementById('primStatusOuest').className = "status-box";
+            document.getElementById('primStatusOuest').innerHTML = "<span class='loading'>Chargement...</span>";
             document.getElementById('socialFeed').innerHTML = "<li class='loading'>Recherche sur Bluesky...</li>";
 
             await Promise.all([fetchPrimStatus(), fetchBlueskyFeed()]);
@@ -125,11 +132,26 @@
             document.getElementById('updateTime').innerText = new Date().toLocaleTimeString('fr-FR');
         }
 
+        function renderStatusBox(boxId, alerts, labelOk) {
+            const box = document.getElementById(boxId);
+            const uniq = [...new Set(alerts)];
+            if (uniq.length === 0) {
+                box.className = "status-box status-ok";
+                box.innerHTML = `✅ RAS. ${labelOk}`;
+            } else {
+                box.className = "status-box status-alert";
+                box.innerHTML = uniq.join("<br><br><hr style='border:0;border-top:1px dashed #e74c3c;'><br>");
+            }
+        }
+
         async function fetchPrimStatus() {
-            const statusBox = document.getElementById('primStatus');
-            
+            const boxEst   = document.getElementById('primStatusEst');
+            const boxOuest = document.getElementById('primStatusOuest');
+
             if (!PRIM_API_KEY) {
-                statusBox.innerHTML = "⚠️ Clé API absente. Rechargez pour la renseigner.";
+                const warn = "⚠️ Clé API absente. Rechargez pour la renseigner.";
+                boxEst.innerHTML = warn;
+                boxOuest.innerHTML = warn;
                 return;
             }
 
@@ -138,79 +160,72 @@
                     headers: { "apikey": PRIM_API_KEY }
                 });
                 const data = await response.json();
-                
                 const disruptions = data.disruptions || [];
-                let alerts = [];
 
-                // Liste stricte des gares de TON axe (Axe Centre + Branche Est)
                 const garesAxeEst = [
-                    "châtelet", "chatelet", "les halles", "gare de lyon", "nation", "vincennes", 
+                    "châtelet", "chatelet", "les halles", "gare de lyon", "nation", "vincennes",
                     "fontenay", "val de fontenay", "neuilly", "neuilly-plaisance", "neuilly plaisance",
-                    "bry", "bry-sur-marne", "bry sur marne", "noisy", "noisy-le-grand", "noisy le grand", 
-                    "mont d'est", "mont dest", "noisiel", "lognes", "torcy", "bussy", "bussy-saint-georges", 
-                    "bussy st georges", "val d'europe", "val deurope", "serris", "marne", "marne-la-vallée", 
+                    "bry", "bry-sur-marne", "bry sur marne", "noisy", "noisy-le-grand", "noisy le grand",
+                    "mont d'est", "mont dest", "noisiel", "lognes", "torcy", "bussy", "bussy-saint-georges",
+                    "bussy st georges", "val d'europe", "val deurope", "serris", "marne", "marne-la-vallée",
                     "marne la vallee", "chessy", "disney"
                 ];
 
+                // Keywords that indicate a specific direction
+                const kwBanlieue = ["sens banlieue", "vers banlieue", "direction banlieue", "vers marne", "vers val d'europe", "vers chessy"];
+                const kwParis    = ["sens paris", "vers paris", "direction paris", "retour paris", "vers châtelet", "vers chatelet"];
+
+                let alertsEst = [], alertsOuest = [];
+
                 disruptions.forEach(d => {
                     const title = (d.title || "").toLowerCase();
-                    
                     let msg = "";
                     if (d.messages && d.messages.length > 0) {
                         msg = d.messages[0].text || d.messages[0].description || "";
                     }
                     const fullText = (title + " " + msg).toLowerCase();
+                    const objectsStr = JSON.stringify(d.impacted_objects || []);
 
-                    // 🛑 CHANGEMENT STRATÉGIQUE DE PARSING
-                    // On vérifie si l'ID unique de la ligne de RER A est explicitement listé dans les objets impactés
-                    const objectsImpactedStr = JSON.stringify(d.impacted_objects || []);
-                    
-                    // Une perturbation est valide SI elle vise directement l'ID technique du RER A ("C01742")
-                    // ET que le titre ne commence pas par "Bus" ou "Tram"
-                    const isStrictlyRerA = objectsImpactedStr.includes("C01742") && 
-                                           !title.startsWith("bus ") && 
-                                           !title.startsWith("tram ");
+                    const isRerA = objectsStr.includes("C01742") &&
+                                   !title.startsWith("bus ") &&
+                                   !title.startsWith("tram ");
+                    if (!isRerA) return;
 
-                    if (isStrictlyRerA) {
-                        let impactTaZone = false;
+                    const hasMyGare = garesAxeEst.some(g => fullText.includes(g));
+                    const isGeneral = fullText.includes("interrompu entre") ||
+                                      fullText.includes("panne") ||
+                                      fullText.includes("incident technique") ||
+                                      fullText.includes("ralentissement");
 
-                        const hasMyGare = garesAxeEst.some(gare => fullText.includes(gare));
-                        const isAlerteGenerale = fullText.includes("interrompu entre") || 
-                                                 fullText.includes("panne") || 
-                                                 fullText.includes("incident technique") || 
-                                                 fullText.includes("ralentissement");
+                    let inZone = hasMyGare || isGeneral;
+                    if ((fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("st-germain")) && !hasMyGare) {
+                        inZone = false;
+                    }
+                    if (!inZone) return;
 
-                        if (hasMyGare || isAlerteGenerale) {
-                            impactTaZone = true;
-                        }
+                    const entry = `<strong>⚠️ ${d.title || "Incident / Ralentissement"}</strong><br>${msg || "Aucun détail complémentaire."}`;
 
-                        // Si ça parle STRICTEMENT des terminus Ouest (Cergy/Poissy/St-Germain) sans mentionner le centre ou tes gares, on dégage
-                        if ((fullText.includes("cergy") || fullText.includes("poissy") || fullText.includes("st-germain")) && !hasMyGare) {
-                            impactTaZone = false;
-                        }
+                    const isBanlieue = kwBanlieue.some(k => fullText.includes(k));
+                    const isParis    = kwParis.some(k => fullText.includes(k));
 
-                        if (impactTaZone) {
-                            const cleanTitle = d.title || "Incident / Ralentissement";
-                            const cleanMsg = msg || "Aucun détail complémentaire.";
-                            alerts.push(`<strong>⚠️ ${cleanTitle}</strong><br>${cleanMsg}`);
-                        }
+                    if (!isBanlieue && !isParis) {
+                        // No direction specified → affects both
+                        alertsEst.push(entry);
+                        alertsOuest.push(entry);
+                    } else {
+                        if (isBanlieue) alertsEst.push(entry);
+                        if (isParis)    alertsOuest.push(entry);
                     }
                 });
 
-                alerts = [...new Set(alerts)];
-
-                if (alerts.length === 0) {
-                    statusBox.className = "status-box status-ok";
-                    statusBox.innerHTML = "✅ RAS. Trafic régulier sur l'axe Châtelet ➔ Val d'Europe.";
-                } else {
-                    statusBox.className = "status-box status-alert";
-                    statusBox.innerHTML = alerts.join("<br><br><hr style='border:0; border-top:1px dashed #e74c3c;'><br>");
-                }
+                renderStatusBox('primStatusEst',   alertsEst,   "Trafic régulier vers Val d'Europe.");
+                renderStatusBox('primStatusOuest', alertsOuest, "Trafic régulier vers Châtelet.");
 
             } catch (err) {
                 console.error(err);
-                statusBox.className = "status-box status-alert";
-                statusBox.innerHTML = "❌ Erreur de connexion ou de clé API PRIM.";
+                const errHtml = "❌ Erreur de connexion ou de clé API PRIM.";
+                boxEst.className = boxOuest.className = "status-box status-alert";
+                boxEst.innerHTML = boxOuest.innerHTML = errHtml;
             }
         }
 
